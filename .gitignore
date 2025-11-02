@@ -1,0 +1,12 @@
+# Claude and Serena
+.claude/
+.serena/
+
+# Virtual Environment
+.venv/
+
+# IDEs
+.vscode/
+
+# OS
+.DS_Store
