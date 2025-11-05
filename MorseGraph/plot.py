@@ -354,11 +354,9 @@ def visualize_morse_sets_graph_basins(grid, morse_graph, basins, box_map,
     axes[0].set_ylim(lower_bounds[1], upper_bounds[1])
     axes[0].set_xlabel(xlabel)
     axes[0].set_ylabel(ylabel)
-    axes[0].set_title(f'Morse Sets - {method_label}')
 
     # Panel 2: Morse Graph
     plot_morse_graph(morse_graph, ax=axes[1])
-    axes[1].set_title(f'Morse Graph - {method_label}')
 
     # Panel 3: Basins of Attraction
     plot_basins_of_attraction(grid, basins, morse_graph=morse_graph, ax=axes[2],
@@ -367,7 +365,6 @@ def visualize_morse_sets_graph_basins(grid, morse_graph, basins, box_map,
     axes[2].set_ylim(lower_bounds[1], upper_bounds[1])
     axes[2].set_xlabel(xlabel)
     axes[2].set_ylabel(ylabel)
-    axes[2].set_title(f'Basins of Attraction - {method_label}')
 
     plt.tight_layout()
 
@@ -376,3 +373,146 @@ def visualize_morse_sets_graph_basins(grid, morse_graph, basins, box_map,
     plt.close()
 
     return output_path
+
+
+def save_morse_sets_only(grid, morse_graph, box_map, output_path, bounds, show_outside=False):
+    """
+    Save only the Morse sets panel as a standalone figure (paper-ready, no title).
+
+    :param grid: UniformGrid object
+    :param morse_graph: NetworkX DiGraph of morse sets
+    :param box_map: NetworkX DiGraph of box-to-box transitions
+    :param output_path: Full path to save the figure
+    :param bounds: Domain bounds array of shape (2, D) [[mins], [maxs]]
+    :param show_outside: Whether to highlight boxes that map outside
+    :return: output_path
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+
+    lower_bounds, upper_bounds = bounds[0], bounds[1]
+
+    plot_morse_sets(grid, morse_graph, ax=ax,
+                   box_map=box_map if show_outside else None,
+                   show_outside=show_outside)
+    ax.set_xlim(lower_bounds[0], upper_bounds[0])
+    ax.set_ylim(lower_bounds[1], upper_bounds[1])
+    ax.set_xlabel('$x_1$')
+    ax.set_ylabel('$x_2$')
+    # No title for paper-ready figure
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    return output_path
+
+
+def save_morse_graph_only(morse_graph, output_path, show_box_counts=False):
+    """
+    Save only the Morse graph (DAG) panel as a standalone figure (paper-ready, no title).
+
+    :param morse_graph: NetworkX DiGraph of morse sets
+    :param output_path: Full path to save the figure
+    :param show_box_counts: Whether to show box counts in node labels
+    :return: output_path
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+    plot_morse_graph(morse_graph, ax=ax, show_box_counts=show_box_counts)
+    # No title for paper-ready figure
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    return output_path
+
+
+def save_basins_only(grid, basins, morse_graph, output_path, bounds, show_outside=False):
+    """
+    Save only the basins of attraction panel as a standalone figure (paper-ready, no title).
+
+    :param grid: UniformGrid object
+    :param basins: Dict mapping morse sets (frozensets) to their basins (sets of box indices)
+    :param morse_graph: NetworkX DiGraph of morse sets
+    :param output_path: Full path to save the figure
+    :param bounds: Domain bounds array of shape (2, D) [[mins], [maxs]]
+    :param show_outside: Whether to show boxes outside any basin
+    :return: output_path
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+
+    lower_bounds, upper_bounds = bounds[0], bounds[1]
+
+    plot_basins_of_attraction(grid, basins, morse_graph=morse_graph, ax=ax,
+                             show_outside=show_outside)
+    ax.set_xlim(lower_bounds[0], upper_bounds[0])
+    ax.set_ylim(lower_bounds[1], upper_bounds[1])
+    ax.set_xlabel('$x_1$')
+    ax.set_ylabel('$x_2$')
+    # No title for paper-ready figure
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    return output_path
+
+def save_all_panels_individually(grid, morse_graph, basins, box_map, base_name, bounds,
+                                  method_label='', labels=('$x_1$', '$x_2$'), show_outside=False):
+    """
+    Save all visualizations: individual panels (paper-ready) + combined 3-panel figure.
+
+    Creates 4 output files:
+    - {base_name}_morse_sets.png (paper-ready, no title)
+    - {base_name}_morse_graph.png (paper-ready, no title)
+    - {base_name}_basins.png (paper-ready, no title)
+    - {base_name}.png (combined 3-panel, no titles)
+
+    :param grid: UniformGrid object
+    :param morse_graph: NetworkX DiGraph of morse sets
+    :param basins: Dict mapping morse sets to their basins
+    :param box_map: NetworkX DiGraph of box-to-box transitions
+    :param base_name: Base path without extension (e.g., 'output/method1_integration_f')
+    :param bounds: Domain bounds array of shape (2, D)
+    :param method_label: Label for combined figure titles (e.g., 'F_integration (f)')
+    :param labels: Tuple of (xlabel, ylabel) for axis labels
+    :param show_outside: Whether to highlight boxes that map outside
+    :return: Dict with keys 'morse_sets', 'morse_graph', 'basins', 'combined' containing paths
+    """
+    paths = {}
+
+    # Save individual panels (paper-ready, no titles)
+    paths['morse_sets'] = save_morse_sets_only(
+        grid, morse_graph, box_map,
+        f"{base_name}_morse_sets.png",
+        bounds, show_outside
+    )
+
+    paths['morse_graph'] = save_morse_graph_only(
+        morse_graph,
+        f"{base_name}_morse_graph.png"
+    )
+
+    paths['basins'] = save_basins_only(
+        grid, basins, morse_graph,
+        f"{base_name}_basins.png",
+        bounds, show_outside
+    )
+
+    # Save combined 3-panel figure (with titles, for overview)
+    paths['combined'] = visualize_morse_sets_graph_basins(
+        grid, morse_graph, basins, box_map,
+        method_label,
+        bounds, labels,
+        f"{base_name}.png",
+        show_outside
+    )
+
+    return paths

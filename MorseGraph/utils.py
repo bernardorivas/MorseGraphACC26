@@ -105,9 +105,14 @@ def define_tau_map(ode_f, tau: float, method: str = 'RK45',
     """
     Create a point map for time-τ integration using scipy.integrate.solve_ivp.
 
+    Automatically detects SwitchingSystem instances and enables event detection
+    for precise switching surface crossing.
+
     Useful for creating the map_f argument for F_Lipschitz.
 
     :param ode_f: ODE right-hand side function f(t, x)
+                 If ode_f is a SwitchingSystem instance, automatically
+                 creates event functions for switching surface detection.
     :param tau: Integration time
     :param method: Integration method ('RK45', 'RK23', 'BDF', etc.)
     :param rtol: Relative tolerance
@@ -118,14 +123,29 @@ def define_tau_map(ode_f, tau: float, method: str = 'RK45',
     Example:
         >>> def ode_rhs(t, x):
         ...     return np.array([-x[0] + 1, -x[1] + 2])
-        >>> map_f = create_tau_map_scipy(ode_rhs, tau=0.1)
+        >>> map_f = define_tau_map(ode_rhs, tau=0.1)
         >>> x_next = map_f(np.array([0.5, 0.5]))
     """
+    # Auto-detect SwitchingSystem and create event functions
+    event_functions = []
+    from MorseGraph.systems import SwitchingSystem
+    if isinstance(ode_f, SwitchingSystem):
+        # Create event functions for each polynomial (switching surface)
+        for poly in ode_f.polynomials:
+            def event_func(t, x, p=poly):
+                return p(x)
+            event_func.terminal = False
+            event_functions.append(event_func)
+
     def map_f(x):
         """Evaluate φ_τ(x) via ODE integration."""
         kwargs = dict(method=method, rtol=rtol, atol=atol)
         if max_step is not None:
             kwargs['max_step'] = max_step
+        
+        # Add event functions if they exist (for SwitchingSystem)
+        if event_functions:
+            kwargs['events'] = event_functions
 
         sol = solve_ivp(ode_f, [0.0, tau], x, **kwargs)
 
@@ -187,3 +207,124 @@ def compute_morse_set_centroid(grid, morse_set):
 
     # Compute centroid as mean of all box centers
     return np.mean(box_centers, axis=0)
+
+def compute_modes(trajectory_data, polynomials):
+    """
+    Compute mode for each point using binary conversion.
+    
+    Mode encoding: mode = sum_{i=0}^{k-1} (p_i(x) > 0) * 2^i
+    
+    This maps polynomial sign patterns to mode indices:
+    - All polynomials negative → mode 0
+    - p_0 positive, rest negative → mode 1  
+    - p_1 positive, rest negative → mode 2
+    - p_0 and p_1 positive → mode 3
+    - etc.
+    
+    :param trajectory_data: Array of shape (N, D) with trajectory points
+    :param polynomials: List of polynomial functions [p_0, ..., p_{k-1}]
+    :return: Array of shape (N,) with integer mode indices
+    
+    Example:
+        >>> polynomials = [lambda x: x[0] - 3, lambda x: x[1] - 3]
+        >>> data = np.array([[2, 2], [4, 2], [2, 4], [4, 4]])
+        >>> modes = compute_modes(data, polynomials)
+        >>> # modes = [0, 1, 2, 3] for the four quadrants
+    """
+    import numpy as np
+    
+    N = len(trajectory_data)
+    modes = np.zeros(N, dtype=int)
+    
+    for i, p in enumerate(polynomials):
+        for j, x in enumerate(trajectory_data):
+            if p(x) > 0:
+                modes[j] += 2**i
+    
+    return modes
+
+
+def matlab_mode_to_binary(matlab_mode: int, num_polynomials: int = None) -> int:
+    """
+    Convert MATLAB mode indexing to binary mode indexing.
+    
+    MATLAB convention: q = 1 + i + 2j + 4k + ... where i,j,k ∈ {0,1}
+    Binary convention: mode = i + 2j + 4k + ...
+    
+    Conversion: binary_mode = matlab_mode - 1
+    
+    :param matlab_mode: 1-indexed mode from MATLAB/CSV (1, 2, 3, 4, ...)
+    :param num_polynomials: Number of switching polynomials (for validation)
+    :return: 0-indexed binary mode (0, 1, 2, 3, ...)
+    
+    Examples:
+        >>> matlab_mode_to_binary(1, num_polynomials=2)  # [-, -] → mode 0
+        0
+        >>> matlab_mode_to_binary(4, num_polynomials=2)  # [+, -] → mode 3
+        3
+    """
+    if matlab_mode < 1:
+        raise ValueError(f"MATLAB mode must be >= 1, got {matlab_mode}")
+    
+    binary_mode = matlab_mode - 1
+    
+    # Optional validation
+    if num_polynomials is not None:
+        max_mode = 2**num_polynomials - 1
+        if binary_mode > max_mode:
+            raise ValueError(
+                f"Binary mode {binary_mode} exceeds max for {num_polynomials} "
+                f"polynomials (max = {max_mode})"
+            )
+    
+    return binary_mode
+
+
+def binary_mode_to_matlab(binary_mode: int) -> int:
+    """
+    Convert binary mode indexing to MATLAB mode indexing.
+    
+    Inverse of matlab_mode_to_binary.
+    
+    :param binary_mode: 0-indexed binary mode
+    :return: 1-indexed MATLAB mode
+    """
+    return binary_mode + 1
+
+
+def create_polynomial_from_coeffs(coeff_dict: dict, dim: int) -> callable:
+    """
+    Create polynomial lambda function from coefficient dictionary.
+    
+    Builds polynomial of form: sum(coeff * x[0]^e1 * x[1]^e2 * ...)
+    
+    :param coeff_dict: Dictionary mapping exponent tuples to coefficients
+                      Example: {(0,0): -10, (1,0): 5, (0,1): 3, (2,0): 2}
+                      represents: -10 + 5*x[0] + 3*x[1] + 2*x[0]^2
+    :param dim: State space dimension
+    :return: Callable polynomial function
+    
+    Example:
+        >>> coeffs = {(0,0): -10.0, (1,0): 5.0, (0,1): 3.0, (2,0): 2.0}
+        >>> poly = create_polynomial_from_coeffs(coeffs, dim=2)
+        >>> poly(np.array([1.0, 2.0]))  # -10 + 5*1 + 3*2 + 2*1^2 = 3.0
+        3.0
+    """
+    import numpy as np
+    
+    # Capture coefficients in closure
+    coeffs = dict(coeff_dict)  # Copy to avoid mutation
+    
+    def polynomial(x):
+        """Evaluate polynomial at point x."""
+        result = 0.0
+        for exponents, coeff in coeffs.items():
+            # Compute x[0]^e1 * x[1]^e2 * ...
+            term = coeff
+            for i, exp in enumerate(exponents):
+                if exp > 0:
+                    term *= x[i]**exp
+            result += term
+        return result
+    
+    return polynomial

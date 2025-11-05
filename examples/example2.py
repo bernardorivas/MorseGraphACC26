@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Example 2: Piecewise Van der Pol Oscillator
 
-Computes Morse graphs, Morse sets, and regions of attraction
-for a piecewise Van der Pol-like ODE system with nonlinear force.
+Computes Morse graphs, Morse sets, and regions of attraction.
+
+Methods:
+    1. F_integration (f): Numerical ODE integration of the ground-truth system
+    2. F_data: Data-driven approach with "outside" mapping for unmapped boxes
+    3. F_Lipschitz (f): Lipschitz-based bounds using ground-truth system
+    4. F_gaussianprocess (GP): GP-based outer approximation with confidence bounds (arXiv:2210.01292v1)
+    5. F_integration (hat_f): Numerical integration of learned system from data
 """
 
 import numpy as np
@@ -12,10 +18,12 @@ from MorseGraph.grids import UniformGrid
 from MorseGraph.dynamics import F_integration, F_Lipschitz, F_data, F_gaussianprocess
 from MorseGraph.systems import SwitchingSystem
 from MorseGraph.learning import train_gp_from_data
-from MorseGraph.utils import generate_trajectory_data, define_tau_map
+from MorseGraph.utils import generate_trajectory_data, define_tau_map, compute_modes
 from MorseGraph.postprocessing import post_processing_example_2
 from MorseGraph.analysis import full_morse_graph_analysis
-from MorseGraph.plot import visualize_morse_sets_graph_basins
+from MorseGraph.plot import save_all_panels_individually
+from MorseGraph.comparison import (compute_morse_set_iou_table, compute_basin_iou_table,
+                                    compute_coverage_ratios, format_iou_tables_text)
 
 
 # ==============================================================================
@@ -59,6 +67,35 @@ ode_system = SwitchingSystem(polynomials, vector_fields)
 
 
 # ==============================================================================
+# hat_f from Learned Data
+# ==============================================================================
+
+# Switching surface polynomial (from example2_sps_vf_coeffs.csv)
+# Coefficients filtered to remove numerical noise (|coeff| < 1e-10)
+hat_polynomials = [
+    lambda x: (0.493655459477285
+               - 0.00096745471858729*x[0]
+               - 0.491052577096639*x[0]**2
+               - 0.00159690015776599*x[1]
+               - 0.00124617503242523*x[0]*x[1]),  # Learned switching surface
+]
+
+# Vector fields (from example2_sps_mode_polynomials.csv)
+# CSV modes 1,2 → binary modes 0,1
+# Coefficients filtered to remove numerical noise
+hat_vector_fields = [
+    # Mode 0 (CSV mode 1): |x1| < threshold
+    lambda x: np.array([x[1],
+                        x[1] - x[0]**2 - x[0]**3]),
+    # Mode 1 (CSV mode 2): |x1| > threshold
+    lambda x: np.array([x[1],
+                        -x[0] - x[0]**2 + x[1]]),
+]
+
+hat_ode_system = SwitchingSystem(hat_polynomials, hat_vector_fields)
+
+
+# ==============================================================================
 # MorseGraph Parameters
 # ==============================================================================
 
@@ -73,9 +110,9 @@ upper_bounds = np.array([3.0, 3.0])
 # Grid resolution: 2^k intervals per dimension
 grid_resolution = 7
 
-# Plot labels
-xlabel = 'x1'
-ylabel = 'x2'
+# Plot labels (LaTeX-style subscripts)
+xlabel = '$x_1$'
+ylabel = '$x_2$'
 
 
 # ==============================================================================
@@ -86,12 +123,12 @@ def main():
     """
     Computes Morse graphs for the piecewise Van der Pol oscillator using 5 different F(rect) methods.
 
-    All methods use the same dynamics (f = piecewise_vdp, hat_f = f):
+    Methods (in order):
     1. F_integration (f): Numerical ODE integration of the ground-truth system
     2. F_data: Data-driven approach with "outside" mapping for unmapped boxes
-    3. F_gaussianprocess (GP): GP-based outer approximation with confidence bounds
-    4. F_Lipschitz (hat_f): Lipschitz-based bounds (hat_f = f)
-    5. F_integration (hat_f): Numerical integration (hat_f = f, same as Method 1)
+    3. F_Lipschitz (f): Lipschitz-based bounds using ground-truth system
+    4. F_gaussianprocess (GP): GP-based outer approximation with confidence bounds
+    5. F_integration (hat_f): Numerical integration of learned system from CSV data
     """
 
     # Create output directory
@@ -119,7 +156,6 @@ def main():
 
     print(f"Grid configuration:")
     print(f"  Resolution: {divisions[0]} × {divisions[1]} = {len(grid.get_boxes())} boxes")
-    print(f"  Padding (epsilon): {epsilon:.6f}")
     print(f"  Domain: [{lower_bounds[0]:.1f}, {upper_bounds[0]:.1f}] × [{lower_bounds[1]:.1f}, {upper_bounds[1]:.1f}]")
 
     # Define Wong colorblind-safe palette for morse set visualization
@@ -153,24 +189,26 @@ def main():
     F1 = F_integration(ode_system, tau)
 
     # Compute Morse graph analysis
+    import time
+    t_start = time.time()
     box_map1, morse_graph1, basins1 = full_morse_graph_analysis(grid, F1)
+    t_compute1 = time.time() - t_start
+    print(f"  Computation time: {t_compute1:.2f} seconds")
 
-    # Apply Wong colorblind-safe palette
-    apply_wong_colors(morse_graph1)
-
-    # Visualize
-    figure_path1 = visualize_morse_sets_graph_basins(
+    # Visualize (individual panels + combined 3-panel)
+    bounds = np.array([lower_bounds, upper_bounds])
+    base_name = os.path.join(output_dir, 'method1_integration_f')
+    save_all_panels_individually(
         grid, morse_graph1, basins1, box_map1,
-        'F_integration (f)',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_integration_f.png'),
+        base_name, bounds,
+        method_label='F_integration (f)',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute detailed metrics
-    morse_set_box_counts = {ms: len(ms) for ms in morse_graph1.nodes()}
-    basin_box_counts = {ms: len(basin) for ms, basin in basins1.items()}
+    morse_set_box_counts = {i: len(ms) for i, ms in enumerate(morse_graph1.nodes())}
+    basin_box_counts = {i: len(basins1[ms]) for i, ms in enumerate(morse_graph1.nodes())}
 
     # Post-processing
     print("\nPost-processing morse graph...")
@@ -178,37 +216,35 @@ def main():
         grid, box_map1, morse_graph1, basins1
     )
 
-    # Visualize combined morse graph
-    _ = visualize_morse_sets_graph_basins(
+    # Visualize combined morse graph (individual panels + combined 3-panel)
+    base_name_combined = os.path.join(output_dir, 'method1_integration_f_combined')
+    save_all_panels_individually(
         grid, combined_morse_graph, combined_basins, combined_morse_graph,
-        'F_integration (f) - Combined',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_integration_f_combined.png'),
+        base_name_combined, bounds,
+        method_label='F_integration (f) - Combined',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute combined metrics
-    combined_morse_set_box_counts = {ms: len(ms) for ms in combined_morse_graph.nodes()}
-    combined_basin_box_counts = {ms: len(basin) for ms, basin in combined_basins.items()}
+    combined_morse_set_box_counts = {i: len(node) for i, node in enumerate(combined_morse_graph.nodes())}
+    combined_basin_box_counts = {i: len(combined_basins[node]) for i, node in enumerate(combined_morse_graph.nodes())}
 
     # Create results dict
     results1 = {
         'method': 'F_integration (f)',
         'num_morse_sets': len(morse_graph1.nodes()),
         'num_edges': len(morse_graph1.edges()),
-        'num_basins': len(basins1),
-        'figure_path': figure_path1,
         'morse_set_box_counts': morse_set_box_counts,
         'basin_box_counts': basin_box_counts,
         'combined_morse_set_box_counts': combined_morse_set_box_counts,
         'combined_basin_box_counts': combined_basin_box_counts,
         'combined_morse_graph': combined_morse_graph,
-        'combined_basins': combined_basins
+        'combined_basins': combined_basins,
+        'computation_time': t_compute1
     }
     print(f"  Morse sets: {results1['num_morse_sets']}")
     print(f"  Edges: {results1['num_edges']}")
-    print(f"  Saved: {results1['figure_path']}\n")
     results_summary.append(results1)
 
     # =========================================================================
@@ -237,15 +273,23 @@ def main():
     F_field = np.array([ode_system(0, x) for x in trajectory_data])
     print(f"  Computed vector field at {len(trajectory_data)} points")
 
+    # Compute modes using binary encoding: mode = sum((p_i(x) > 0) * 2^i)
+    print(f"  Computing mode classification for all trajectory points...")
+    modes_f = compute_modes(trajectory_data, polynomials)
+    modes_hat_f = compute_modes(trajectory_data, hat_polynomials)
+    print(f"  Computed modes: f (analytical) and hat_f (learned)")
+
     # Save MATLAB-compatible data
     import scipy.io as sio
     mat_filename = os.path.join(output_dir, 'piecewise_vdp_data.mat')
     sio.savemat(mat_filename, {
         'trajectory_data': trajectory_data,  # All trajectory points
-        'F_field': F_field           # Vector field f(x) at all trajectory points
+        'F_field': F_field,                  # Vector field f(x) at all trajectory points
+        'modes_f': modes_f,                  # Mode indices for analytical system f
+        'modes_hat_f': modes_hat_f           # Mode indices for learned system hat_f
     })
     print(f"  Saved data to: {mat_filename}")
-    print(f"    - trajectory_data, F_field: vector field ({len(trajectory_data)} points)")
+    print(f"    - trajectory_data, F_field, modes_f, modes_hat_f ({len(trajectory_data)} points)")
 
     # =========================================================================
     # METHOD 2: F_data - Data-Driven
@@ -257,23 +301,26 @@ def main():
 
     # Create F_data
     F2 = F_data(X, Y, grid, map_empty='outside')
+
+    # Compute Morse graph analysis
+    t_start = time.time()
     box_map2, morse_graph2, basins2 = full_morse_graph_analysis(grid, F2)
+    t_compute2 = time.time() - t_start
+    print(f"  Computation time: {t_compute2:.2f} seconds")
 
-    # Apply Wong colorblind-safe palette
-    apply_wong_colors(morse_graph2)
-
-    figure_path2 = visualize_morse_sets_graph_basins(
+    # Visualize (individual panels + combined 3-panel)
+    base_name = os.path.join(output_dir, 'method2_data')
+    save_all_panels_individually(
         grid, morse_graph2, basins2, box_map2,
-        'F_data',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_data.png'),
-        show_outside=True
+        base_name, bounds,
+        method_label='F_data',
+        labels=(xlabel, ylabel),
+        show_outside=True  # F_data shows outside boxes
     )
 
     # Compute detailed metrics
-    morse_set_box_counts = {ms: len(ms) for ms in morse_graph2.nodes()}
-    basin_box_counts = {ms: len(basin) for ms, basin in basins2.items()}
+    morse_set_box_counts = {i: len(ms) for i, ms in enumerate(morse_graph2.nodes())}
+    basin_box_counts = {i: len(basins2[ms]) for i, ms in enumerate(morse_graph2.nodes())}
 
     # Post-processing
     print("\nPost-processing morse graph...")
@@ -281,43 +328,120 @@ def main():
         grid, box_map2, morse_graph2, basins2
     )
 
-    # Visualize combined morse graph
-    _ = visualize_morse_sets_graph_basins(
+    # Visualize combined morse graph (individual panels + combined 3-panel)
+    base_name_combined = os.path.join(output_dir, 'method2_data_combined')
+    save_all_panels_individually(
         grid, combined_morse_graph2, combined_basins2, combined_morse_graph2,
-        'F_data - Combined',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_data_combined.png'),
+        base_name_combined, bounds,
+        method_label='F_data - Combined',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute combined metrics
-    combined_morse_set_box_counts = {ms: len(ms) for ms in combined_morse_graph2.nodes()}
-    combined_basin_box_counts = {ms: len(basin) for ms, basin in combined_basins2.items()}
+    combined_morse_set_box_counts = {i: len(node) for i, node in enumerate(combined_morse_graph2.nodes())}
+    combined_basin_box_counts = {i: len(combined_basins2[node]) for i, node in enumerate(combined_morse_graph2.nodes())}
 
     results2 = {
         'method': 'F_data',
         'num_morse_sets': len(morse_graph2.nodes()),
         'num_edges': len(morse_graph2.edges()),
-        'num_basins': len(basins2),
-        'figure_path': figure_path2,
         'morse_set_box_counts': morse_set_box_counts,
         'basin_box_counts': basin_box_counts,
         'combined_morse_set_box_counts': combined_morse_set_box_counts,
         'combined_basin_box_counts': combined_basin_box_counts,
         'combined_morse_graph': combined_morse_graph2,
-        'combined_basins': combined_basins2
+        'combined_basins': combined_basins2,
+        'computation_time': t_compute2
     }
     print(f"  Morse sets: {results2['num_morse_sets']}")
     print(f"  Edges: {results2['num_edges']}")
-    print(f"  Saved: {results2['figure_path']}\n")
     results_summary.append(results2)
 
     # =========================================================================
-    # METHOD 3: F_gaussianprocess (GP) - Data-Driven with Confidence Bounds
+    # METHOD 3: F_Lipschitz (f)
     # =========================================================================
     print("=" * 80)
-    print("METHOD 3: F_gaussianprocess - GP-based Outer Approximation")
+    print("METHOD 3: F_Lipschitz (f) - Lipschitz-based Outer Approximation")
+    print("=" * 80)
+
+    # Use Lipschitz constant for Van der Pol
+    L_tau = 20.64
+    print(f"  Lipschitz constant: L_tau = {L_tau:.6f}")
+
+    # F_Lipschitz Padding: padding = L_tau * (box_diameter/2)
+    box_diameter = np.linalg.norm(diameter)  # Diagonal of a grid cell
+    padding_radius = L_tau * box_diameter / 2
+    print(f"  Box diameter (grid cell diagonal): {box_diameter:.6f}")
+    print(f"  Padding radius: L_tau * (diameter/2) = {padding_radius:.6f}")
+    print(f"  Switching surface: |x1| = 1")
+
+    # Create point map and F_Lipschitz using ode_system
+    # define_tau_map will auto-detect SwitchingSystem and use event detection
+    tau_map = define_tau_map(ode_system, tau, max_step=0.05, rtol=1e-6, atol=1e-9)
+    F3 = F_Lipschitz(tau_map, L_tau=L_tau, box_diameter=box_diameter, epsilon=0.0)
+
+    # Compute Morse graph analysis
+    t_start = time.time()
+    box_map3, morse_graph3, basins3 = full_morse_graph_analysis(grid, F3)
+    t_compute3 = time.time() - t_start
+    print(f"  Computation time: {t_compute3:.2f} seconds")
+
+    # Visualize (individual panels + combined 3-panel)
+    base_name = os.path.join(output_dir, 'method3_lipschitz_f')
+    save_all_panels_individually(
+        grid, morse_graph3, basins3, box_map3,
+        base_name, bounds,
+        method_label='F_Lipschitz (f)',
+        labels=(xlabel, ylabel),
+        show_outside=False
+    )
+
+    # Compute detailed metrics
+    morse_set_box_counts = {i: len(ms) for i, ms in enumerate(morse_graph3.nodes())}
+    basin_box_counts = {i: len(basins3[ms]) for i, ms in enumerate(morse_graph3.nodes())}
+
+    # Post-processing
+    print("\nPost-processing morse graph...")
+    combined_morse_graph3, combined_basins3 = post_processing_example_2(
+        grid, box_map3, morse_graph3, basins3
+    )
+
+    # Visualize combined morse graph (individual panels + combined 3-panel)
+    base_name_combined = os.path.join(output_dir, 'method3_lipschitz_f_combined')
+    save_all_panels_individually(
+        grid, combined_morse_graph3, combined_basins3, combined_morse_graph3,
+        base_name_combined, bounds,
+        method_label='F_Lipschitz (f) - Combined',
+        labels=(xlabel, ylabel),
+        show_outside=False
+    )
+
+    # Compute combined metrics
+    combined_morse_set_box_counts = {i: len(node) for i, node in enumerate(combined_morse_graph3.nodes())}
+    combined_basin_box_counts = {i: len(combined_basins3[node]) for i, node in enumerate(combined_morse_graph3.nodes())}
+
+    results3 = {
+        'method': 'F_Lipschitz (f)',
+        'num_morse_sets': len(morse_graph3.nodes()),
+        'num_edges': len(morse_graph3.edges()),
+        'morse_set_box_counts': morse_set_box_counts,
+        'basin_box_counts': basin_box_counts,
+        'combined_morse_set_box_counts': combined_morse_set_box_counts,
+        'combined_basin_box_counts': combined_basin_box_counts,
+        'combined_morse_graph': combined_morse_graph3,
+        'combined_basins': combined_basins3,
+        'computation_time': t_compute3
+    }
+    print(f"  Morse sets: {results3['num_morse_sets']}")
+    print(f"  Edges: {results3['num_edges']}\n")
+    results_summary.append(results3)
+
+    # =========================================================================
+    # METHOD 4: F_gaussianprocess (GP) - Data-Driven with Confidence Bounds
+    # =========================================================================
+    print("=" * 80)
+    print("METHOD 4: F_gaussianprocess - GP-based Outer Approximation")
     print("=" * 80)
     print(f"  Using {len(X)} trajectory samples from shared dataset...")
     print(f"  Training GP model...")
@@ -331,106 +455,27 @@ def main():
     print(f"  Confidence level: 95% (1-δ = 0.95)")
 
     # Create F_gaussianprocess with trained model
-    F3 = F_gaussianprocess(gp_model, confidence_level=0.95, epsilon=0.0)
-    box_map3, morse_graph3, basins3 = full_morse_graph_analysis(grid, F3)
+    F4 = F_gaussianprocess(gp_model, confidence_level=0.95, epsilon=0.0)
 
-    # Apply Wong colorblind-safe palette
-    apply_wong_colors(morse_graph3)
-
-    figure_path3 = visualize_morse_sets_graph_basins(
-        grid, morse_graph3, basins3, box_map3,
-        'F_gaussianprocess (GP)',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_gaussianprocess.png'),
-        show_outside=False
-    )
-
-    # Compute detailed metrics
-    morse_set_box_counts = {ms: len(ms) for ms in morse_graph3.nodes()}
-    basin_box_counts = {ms: len(basin) for ms, basin in basins3.items()}
-
-    # Post-processing
-    print("\nPost-processing morse graph...")
-    combined_morse_graph3, combined_basins3 = post_processing_example_2(
-        grid, box_map3, morse_graph3, basins3
-    )
-
-    # Visualize combined morse graph
-    _ = visualize_morse_sets_graph_basins(
-        grid, combined_morse_graph3, combined_basins3, combined_morse_graph3,
-        'F_gaussianprocess (GP) - Combined',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_gaussianprocess_combined.png'),
-        show_outside=False
-    )
-
-    # Compute combined metrics
-    combined_morse_set_box_counts = {ms: len(ms) for ms in combined_morse_graph3.nodes()}
-    combined_basin_box_counts = {ms: len(basin) for ms, basin in combined_basins3.items()}
-
-    results3 = {
-        'method': 'F_gaussianprocess (GP)',
-        'num_morse_sets': len(morse_graph3.nodes()),
-        'num_edges': len(morse_graph3.edges()),
-        'num_basins': len(basins3),
-        'figure_path': figure_path3,
-        'morse_set_box_counts': morse_set_box_counts,
-        'basin_box_counts': basin_box_counts,
-        'combined_morse_set_box_counts': combined_morse_set_box_counts,
-        'combined_basin_box_counts': combined_basin_box_counts,
-        'combined_morse_graph': combined_morse_graph3,
-        'combined_basins': combined_basins3
-    }
-    print(f"  Morse sets: {results3['num_morse_sets']}")
-    print(f"  Edges: {results3['num_edges']}")
-    print(f"  Saved: {results3['figure_path']}")
-    print(f"  Note: Uses same {len(X)} sparse samples as F_data")
-    results_summary.append(results3)
-
-    # =========================================================================
-    # METHODS 4-5: Using same system (hat_f = f)
-    # =========================================================================
-
-    # =========================================================================
-    # METHOD 4: F_Lipschitz (hat_f) - Lipschitz-based Outer Approximation
-    # =========================================================================
-    print("=" * 80)
-    print("METHOD 4: F_Lipschitz (hat_f) - Lipschitz-based Outer Approximation")
-    print("=" * 80)
-    print("  Using hat_f = f (piecewise Van der Pol)")
-
-    # Use Lipschitz constant for Van der Pol
-    L_tau = 20.64
-    print(f"  Lipschitz constant: L_tau = {L_tau:.6f}")
-
-    # F_Lipschitz Padding: padding = L_tau * (box_diameter/2)
-    box_diameter = np.linalg.norm(diameter)  # Diagonal of a grid cell
-    padding_radius = L_tau * box_diameter / 2
-    print(f"  Padding radius: L_tau * (diameter/2) = {padding_radius:.6f}")
-    print(f"  Switching surface: |x1| = 1")
-
-    # Create point map and F_Lipschitz using ode_system
-    tau_map = define_tau_map(ode_system, tau)
-    F4 = F_Lipschitz(tau_map, L_tau=L_tau, box_diameter=box_diameter, epsilon=0.0)
+    # Compute Morse graph analysis
+    t_start = time.time()
     box_map4, morse_graph4, basins4 = full_morse_graph_analysis(grid, F4)
+    t_compute4 = time.time() - t_start
+    print(f"  Computation time: {t_compute4:.2f} seconds")
 
-    # Apply Wong colorblind-safe palette
-    apply_wong_colors(morse_graph4)
-
-    figure_path4 = visualize_morse_sets_graph_basins(
+    # Visualize (individual panels + combined 3-panel)
+    base_name = os.path.join(output_dir, 'method4_gaussianprocess')
+    save_all_panels_individually(
         grid, morse_graph4, basins4, box_map4,
-        'F_Lipschitz (hat_f)',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_lipschitz_hatf.png'),
+        base_name, bounds,
+        method_label='F_gaussianprocess (GP)',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute detailed metrics
-    morse_set_box_counts = {ms: len(ms) for ms in morse_graph4.nodes()}
-    basin_box_counts = {ms: len(basin) for ms, basin in basins4.items()}
+    morse_set_box_counts = {i: len(ms) for i, ms in enumerate(morse_graph4.nodes())}
+    basin_box_counts = {i: len(basins4[ms]) for i, ms in enumerate(morse_graph4.nodes())}
 
     # Post-processing
     print("\nPost-processing morse graph...")
@@ -438,36 +483,35 @@ def main():
         grid, box_map4, morse_graph4, basins4
     )
 
-    # Visualize combined morse graph
-    _ = visualize_morse_sets_graph_basins(
+    # Visualize combined morse graph (individual panels + combined 3-panel)
+    base_name_combined = os.path.join(output_dir, 'method4_gaussianprocess_combined')
+    save_all_panels_individually(
         grid, combined_morse_graph4, combined_basins4, combined_morse_graph4,
-        'F_Lipschitz (hat_f) - Combined',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_lipschitz_hatf_combined.png'),
+        base_name_combined, bounds,
+        method_label='F_gaussianprocess (GP) - Combined',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute combined metrics
-    combined_morse_set_box_counts = {ms: len(ms) for ms in combined_morse_graph4.nodes()}
-    combined_basin_box_counts = {ms: len(basin) for ms, basin in combined_basins4.items()}
+    combined_morse_set_box_counts = {i: len(node) for i, node in enumerate(combined_morse_graph4.nodes())}
+    combined_basin_box_counts = {i: len(combined_basins4[node]) for i, node in enumerate(combined_morse_graph4.nodes())}
 
     results4 = {
-        'method': 'F_Lipschitz (hat_f)',
+        'method': 'F_gaussianprocess (GP)',
         'num_morse_sets': len(morse_graph4.nodes()),
         'num_edges': len(morse_graph4.edges()),
-        'num_basins': len(basins4),
-        'figure_path': figure_path4,
         'morse_set_box_counts': morse_set_box_counts,
         'basin_box_counts': basin_box_counts,
         'combined_morse_set_box_counts': combined_morse_set_box_counts,
         'combined_basin_box_counts': combined_basin_box_counts,
         'combined_morse_graph': combined_morse_graph4,
-        'combined_basins': combined_basins4
+        'combined_basins': combined_basins4,
+        'gp_train_time': gp_train_time,
+        'computation_time': t_compute4
     }
     print(f"  Morse sets: {results4['num_morse_sets']}")
-    print(f"  Edges: {results4['num_edges']}")
-    print(f"  Saved: {results4['figure_path']}\n")
+    print(f"  Edges: {results4['num_edges']}\n")
     results_summary.append(results4)
 
     # =========================================================================
@@ -476,27 +520,29 @@ def main():
     print("=" * 80)
     print("METHOD 5: F_integration (hat_f) - Numerical Integration")
     print("=" * 80)
-    print(f"  Using hat_f = f (piecewise Van der Pol)")
-    print(f"  Note: This is identical to METHOD 1 since hat_f = f")
+    print(f"  Using learned hat_f system from CSV coefficients")
 
-    F5 = F_integration(ode_system, tau)
+    F5 = F_integration(hat_ode_system, tau)
+
+    # Compute Morse graph analysis
+    t_start = time.time()
     box_map5, morse_graph5, basins5 = full_morse_graph_analysis(grid, F5)
+    t_compute5 = time.time() - t_start
+    print(f"  Computation time: {t_compute5:.2f} seconds")
 
-    # Apply Wong colorblind-safe palette
-    apply_wong_colors(morse_graph5)
-
-    figure_path5 = visualize_morse_sets_graph_basins(
+    # Visualize (individual panels + combined 3-panel)
+    base_name = os.path.join(output_dir, 'method5_integration_hatf')
+    save_all_panels_individually(
         grid, morse_graph5, basins5, box_map5,
-        'F_integration (hat_f)',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_integration_hatf.png'),
+        base_name, bounds,
+        method_label='F_integration (hat_f)',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute detailed metrics
-    morse_set_box_counts = {ms: len(ms) for ms in morse_graph5.nodes()}
-    basin_box_counts = {ms: len(basin) for ms, basin in basins5.items()}
+    morse_set_box_counts = {i: len(ms) for i, ms in enumerate(morse_graph5.nodes())}
+    basin_box_counts = {i: len(basins5[ms]) for i, ms in enumerate(morse_graph5.nodes())}
 
     # Post-processing
     print("\nPost-processing morse graph...")
@@ -504,67 +550,119 @@ def main():
         grid, box_map5, morse_graph5, basins5
     )
 
-    # Visualize combined morse graph
-    _ = visualize_morse_sets_graph_basins(
+    # Visualize combined morse graph (individual panels + combined 3-panel)
+    base_name_combined = os.path.join(output_dir, 'method5_integration_hatf_combined')
+    save_all_panels_individually(
         grid, combined_morse_graph5, combined_basins5, combined_morse_graph5,
-        'F_integration (hat_f) - Combined',
-        np.array([lower_bounds, upper_bounds]),
-        (xlabel, ylabel),
-        os.path.join(output_dir, 'piecewise_vdp_integration_hatf_combined.png'),
+        base_name_combined, bounds,
+        method_label='F_integration (hat_f) - Combined',
+        labels=(xlabel, ylabel),
         show_outside=False
     )
 
     # Compute combined metrics
-    combined_morse_set_box_counts = {ms: len(ms) for ms in combined_morse_graph5.nodes()}
-    combined_basin_box_counts = {ms: len(basin) for ms, basin in combined_basins5.items()}
+    combined_morse_set_box_counts = {i: len(node) for i, node in enumerate(combined_morse_graph5.nodes())}
+    combined_basin_box_counts = {i: len(combined_basins5[node]) for i, node in enumerate(combined_morse_graph5.nodes())}
 
     results5 = {
         'method': 'F_integration (hat_f)',
         'num_morse_sets': len(morse_graph5.nodes()),
         'num_edges': len(morse_graph5.edges()),
-        'num_basins': len(basins5),
-        'figure_path': figure_path5,
         'morse_set_box_counts': morse_set_box_counts,
         'basin_box_counts': basin_box_counts,
         'combined_morse_set_box_counts': combined_morse_set_box_counts,
         'combined_basin_box_counts': combined_basin_box_counts,
         'combined_morse_graph': combined_morse_graph5,
-        'combined_basins': combined_basins5
+        'combined_basins': combined_basins5,
+        'computation_time': t_compute5
     }
     print(f"  Morse sets: {results5['num_morse_sets']}")
-    print(f"  Edges: {results5['num_edges']}")
-    print(f"  Saved: {results5['figure_path']}\n")
+    print(f"  Edges: {results5['num_edges']}\n")
     results_summary.append(results5)
 
     # =========================================================================
     # Comparison Summary (Before Post-Processing)
     # =========================================================================
     print("=" * 80)
-    print("COMPARISON SUMMARY (Before Post-Processing)")
+    print("COMPARISON SUMMARY - BEFORE POST-PROCESSING")
     print("=" * 80)
-    print(f"{'Method':<25} {'Morse Sets':<15} {'Edges':<10} {'Avg MS Size':<15} {'Avg Basin Size':<15}")
-    print("-" * 90)
+    print(f"{'Method':<30} {'MS':<6} {'Edges':<8} {'Avg MS Size':<12} {'Avg Basin':<12} {'Time (s)':<10}")
+    print("-" * 80)
     for res in results_summary:
-        # Compute averages
-        avg_ms_size = np.mean(list(res['morse_set_box_counts'].values())) if res['morse_set_box_counts'] else 0
-        avg_basin_size = np.mean(list(res['basin_box_counts'].values())) if res['basin_box_counts'] else 0
-        print(f"{res['method']:<25} {res['num_morse_sets']:<15} {res['num_edges']:<10} {avg_ms_size:<15.1f} {avg_basin_size:<15.1f}")
+        avg_ms_size = np.mean(list(res['morse_set_box_counts'].values()))
+        avg_basin = np.mean(list(res['basin_box_counts'].values()))
+        comp_time = res.get('computation_time', 0.0)
+        print(f"{res['method']:<30} {res['num_morse_sets']:<6} {res['num_edges']:<8} "
+              f"{avg_ms_size:<12.1f} {avg_basin:<12.1f} {comp_time:<10.2f}")
+
+    print("\n" + "=" * 80)
+    print("COMPARISON SUMMARY - AFTER POST-PROCESSING")
+    print("=" * 80)
+    print(f"{'Method':<30} {'MS':<6} {'Avg MS Size':<12} {'Avg Basin':<12} {'Time (s)':<10}")
+    print("-" * 80)
+    for res in results_summary:
+        num_collapsed = len(res['combined_morse_set_box_counts'])
+        avg_collapsed_ms = np.mean(list(res['combined_morse_set_box_counts'].values()))
+        avg_collapsed_basin = np.mean(list(res['combined_basin_box_counts'].values()))
+        comp_time = res.get('computation_time', 0.0)
+        print(f"{res['method']:<30} {num_collapsed:<6} {avg_collapsed_ms:<12.1f} {avg_collapsed_basin:<12.1f} {comp_time:<10.2f}")
     print()
 
     # =========================================================================
-    # Comparison Summary (After Post-Processing)
+    # IoU COMPARISON (vs Ground Truth)
     # =========================================================================
+    print("\n" + "=" * 80)
+    print("IoU COMPARISON - Per-Node Analysis")
     print("=" * 80)
-    print("COMPARISON SUMMARY (After Post-Processing)")
+
+    # Collect combined graphs and basins
+    combined_morse_graphs_list = [res['combined_morse_graph'] for res in results_summary]
+    combined_basins_list = [res['combined_basins'] for res in results_summary]
+    method_names = [res['method'] for res in results_summary]
+
+    # Compute IoU tables
+    morse_set_iou = compute_morse_set_iou_table(
+        combined_morse_graphs_list,
+        method_names,
+        ground_truth_idx=0
+    )
+
+    basin_iou = compute_basin_iou_table(
+        combined_basins_list,
+        combined_morse_graphs_list,
+        method_names,
+        ground_truth_idx=0
+    )
+
+    coverage_ratios = compute_coverage_ratios(
+        combined_morse_graphs_list,
+        method_names,
+        ground_truth_idx=0
+    )
+
+    # Format and print IoU tables (will auto-detect 2-node structure)
+    iou_tables_text = format_iou_tables_text(
+        morse_set_iou,
+        basin_iou,
+        coverage_ratios,
+        ground_truth_name=method_names[0]
+    )
+
+    print(iou_tables_text)
+    print()
+
+    # Computation time summary
     print("=" * 80)
-    print(f"{'Method':<25} {'Combined MS':<15} {'Avg MS Size':<15} {'Avg Basin Size':<15}")
+    print("COMPUTATION TIME COMPARISON")
+    print("=" * 80)
+    print(f"{'Method':<40} {'Time (s)':<15} {'Speedup vs F_int(f)':<20}")
     print("-" * 80)
+    gt_time = results_summary[0]['computation_time']
     for res in results_summary:
-        # Compute averages for combined results
-        num_combined_ms = len(res['combined_morse_set_box_counts'])
-        avg_combined_ms_size = np.mean(list(res['combined_morse_set_box_counts'].values())) if res['combined_morse_set_box_counts'] else 0
-        avg_combined_basin_size = np.mean(list(res['combined_basin_box_counts'].values())) if res['combined_basin_box_counts'] else 0
-        print(f"{res['method']:<25} {num_combined_ms:<15} {avg_combined_ms_size:<15.1f} {avg_combined_basin_size:<15.1f}")
+        comp_time = res.get('computation_time', 0.0)
+        speedup = gt_time / comp_time if comp_time > 0 else float('inf')
+        speedup_str = f"{speedup:.2f}x" if speedup != float('inf') else "N/A"
+        print(f"{res['method']:<40} {comp_time:<15.2f} {speedup_str:<20}")
     print()
 
     # =========================================================================
@@ -626,16 +724,49 @@ def main():
     table_lines.append("=" * 80)
     print()
 
-    # Save metrics table to .txt file
+    # Save metrics table to .txt file (including IoU tables and timing)
     txt_output_path = os.path.join(output_dir, 'metrics_comparison.txt')
     with open(txt_output_path, 'w') as f:
+        # Write IoU tables first
+        f.write(iou_tables_text)
+        f.write('\n\n')
+
+        # Write computation time comparison
+        f.write("=" * 80 + '\n')
+        f.write("COMPUTATION TIME COMPARISON\n")
+        f.write("=" * 80 + '\n')
+        f.write(f"{'Method':<40} {'Time (s)':<15} {'Speedup vs F_int(f)':<20}\n")
+        f.write("-" * 80 + '\n')
+        for res in results_summary:
+            comp_time = res.get('computation_time', 0.0)
+            speedup = gt_time / comp_time if comp_time > 0 else float('inf')
+            speedup_str = f"{speedup:.2f}x" if speedup != float('inf') else "N/A"
+            f.write(f"{res['method']:<40} {comp_time:<15.2f} {speedup_str:<20}\n")
+        f.write('\n\n')
+
+        # Then write original metrics
         f.write('\n'.join(table_lines))
 
-    # Save metrics to JSON
+    # Save metrics to JSON (including IoU metrics)
     import json
     json_output_path = os.path.join(output_dir, 'metrics_comparison.json')
+
+    # Combine all metrics into one JSON
+    json_output = {
+        'computation_times': {
+            res['method']: res.get('computation_time', 0.0)
+            for res in results_summary
+        },
+        'iou_metrics': {
+            'morse_set_iou': morse_set_iou,
+            'basin_iou': basin_iou,
+            'coverage_ratios': coverage_ratios
+        },
+        'graph_metrics': metrics_table
+    }
+
     with open(json_output_path, 'w') as f:
-        json.dump(metrics_table, f, indent=2, default=str)
+        json.dump(json_output, f, indent=2, default=str)
 
     print(f"Metrics saved to: {txt_output_path}")
     print(f"JSON data saved to: {json_output_path}\n")

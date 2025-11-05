@@ -662,10 +662,15 @@ class F_data(Dynamics):
 class F_integration(Dynamics):
     """
     A dynamical system defined by an ordinary differential equation.
+
+    Automatically detects SwitchingSystem instances and enables event detection
+    for precise switching surface crossing.
     """
     def __init__(self, ode_f: Callable[[float, np.ndarray], np.ndarray], tau: float, epsilon: float = 0.0):
         """
         :param ode_f: The function defining the ODE, f(t, y).
+                     If ode_f is a SwitchingSystem instance, automatically
+                     creates event functions for switching surface detection.
         :param tau: The integration time.
         :param epsilon: The bloating factor (typically the grid cell diameter).
         """
@@ -673,9 +678,23 @@ class F_integration(Dynamics):
         self.tau = tau
         self.epsilon = epsilon
 
+        # Auto-detect SwitchingSystem and create event functions
+        self.event_functions = []
+        from MorseGraph.systems import SwitchingSystem
+        if isinstance(ode_f, SwitchingSystem):
+            # Create event functions for each polynomial (switching surface)
+            for poly in ode_f.polynomials:
+                def event_func(t, x, p=poly):
+                    return p(x)
+                event_func.terminal = False
+                self.event_functions.append(event_func)
+
     def __call__(self, box: np.ndarray) -> np.ndarray:
         """
         Computes the bounding box of the image of the input box under the ODE flow.
+
+        Uses event detection for SwitchingSystem instances to accurately capture
+        switching surface crossings.
 
         :param box: A numpy array of shape (2, D).
         :return: A numpy array of shape (2, D) for the bloated bounding box of the image.
@@ -689,7 +708,19 @@ class F_integration(Dynamics):
 
         # Integrate the ODE for each sample point in parallel
         def integrate_single_point(p):
-            sol = solve_ivp(self.ode_f, [0, self.tau], p, t_eval=[self.tau])
+            # Use enhanced integration parameters for switching systems
+            if self.event_functions:
+                sol = solve_ivp(
+                    self.ode_f, [0, self.tau], p,
+                    t_eval=[self.tau],
+                    events=self.event_functions,
+                    max_step=0.05,
+                    rtol=1e-6,
+                    atol=1e-9
+                )
+            else:
+                # Standard integration for non-switching systems
+                sol = solve_ivp(self.ode_f, [0, self.tau], p, t_eval=[self.tau])
             return sol.y[:, -1]
 
         image_points = np.array(Parallel(n_jobs=-1)(

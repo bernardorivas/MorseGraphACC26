@@ -1,34 +1,119 @@
-[
-  {
-    "method": "F_data",
-    "mean_iou": 0.010686820397450319,
-    "num_matched": 2,
-    "isomorphic": false,
-    "edit_distance": 2.0,
-    "normalized_edit_distance": 0.6666666666666666
+{
+  "computation_times": {
+    "F_integration (f)": 87.58381581306458,
+    "F_data": 0.08309197425842285,
+    "F_Lipschitz (f)": 32.639100313186646,
+    "F_gaussianprocess (GP)": 30.153381824493408,
+    "F_integration (hat_f)": 45.62494897842407
   },
-  {
-    "method": "F_gaussianprocess (GP)",
-    "mean_iou": 0.32376266862073005,
-    "num_matched": 3,
-    "isomorphic": true,
-    "edit_distance": 0.0,
-    "normalized_edit_distance": 0.0
+  "iou_metrics": {
+    "morse_set_iou": {
+      "F_data": {
+        "node_0": 0.14285714285714285,
+        "node_1": 0.25,
+        "node_2": 0.030120481927710843,
+        "mean": 0.14099254159495123
+      },
+      "F_Lipschitz (f)": {
+        "node_0": 0.4444444444444444,
+        "node_1": 0.4444444444444444,
+        "node_2": 1.0,
+        "mean": 0.6296296296296297
+      },
+      "F_gaussianprocess (GP)": {
+        "node_0": 0.10810810810810811,
+        "node_1": 0.06557377049180328,
+        "node_2": 0.026049475262368817,
+        "mean": 0.0665771179540934
+      },
+      "F_integration (hat_f)": {
+        "node_0": 1.0,
+        "node_1": 1.0,
+        "node_2": 0.6686746987951807,
+        "mean": 0.8895582329317269
+      }
+    },
+    "basin_iou": {
+      "F_data": {
+        "node_0": 0.010498687664041995,
+        "node_1": 0.01087228192951762,
+        "node_2": 0.015706806282722512,
+        "mean": 0.012359258625427375
+      },
+      "F_Lipschitz (f)": {
+        "node_0": 1.0,
+        "node_1": 1.0,
+        "node_2": 1.0,
+        "mean": 1.0
+      },
+      "F_gaussianprocess (GP)": {
+        "node_0": 0.38518687850040007,
+        "node_1": 0.5515976331360947,
+        "node_2": 0.03410874839446268,
+        "mean": 0.3236310866769858
+      },
+      "F_integration (hat_f)": {
+        "node_0": 0.984375,
+        "node_1": 1.0,
+        "node_2": 0.6675392670157068,
+        "mean": 0.883971422338569
+      }
+    },
+    "coverage_ratios": {
+      "F_data": {
+        "node_0": 3.0,
+        "node_1": 4.0,
+        "node_2": 0.030120481927710843
+      },
+      "F_Lipschitz (f)": {
+        "node_0": 2.25,
+        "node_1": 2.25,
+        "node_2": 1.0
+      },
+      "F_gaussianprocess (GP)": {
+        "node_0": 9.25,
+        "node_1": 15.25,
+        "node_2": 31.981927710843372
+      },
+      "F_integration (hat_f)": {
+        "node_0": 1.0,
+        "node_1": 1.0,
+        "node_2": 0.6686746987951807
+      }
+    }
   },
-  {
-    "method": "F_Lipschitz (hat_f)",
-    "mean_iou": 0.9981805659709203,
-    "num_matched": 3,
-    "isomorphic": true,
-    "edit_distance": 0.0,
-    "normalized_edit_distance": 0.0
-  },
-  {
-    "method": "F_integration (hat_f)",
-    "mean_iou": 1.0,
-    "num_matched": 3,
-    "isomorphic": true,
-    "edit_distance": 0.0,
-    "normalized_edit_distance": 0.0
-  }
-]
+  "graph_metrics": [
+    {
+      "method": "F_data",
+      "mean_iou": 0.010685484796779807,
+      "num_matched": 2,
+      "isomorphic": false,
+      "edit_distance": 2.0,
+      "normalized_edit_distance": 0.6666666666666666
+    },
+    {
+      "method": "F_Lipschitz (f)",
+      "mean_iou": 1.0,
+      "num_matched": 3,
+      "isomorphic": true,
+      "edit_distance": 0.0,
+      "normalized_edit_distance": 0.0
+    },
+    {
+      "method": "F_gaussianprocess (GP)",
+      "mean_iou": 0.3236310866769858,
+      "num_matched": 3,
+      "isomorphic": true,
+      "edit_distance": 0.0,
+      "normalized_edit_distance": 0.0
+    },
+    {
+      "method": "F_integration (hat_f)",
+      "mean_iou": 0.883971422338569,
+      "num_matched": 3,
+      "isomorphic": true,
+      "edit_distance": 0.0,
+      "normalized_edit_distance": 0.0
+    }
+  ]
+}
