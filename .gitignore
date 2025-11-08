@@ -17,3 +17,6 @@
 # matlab codes from Kaito
 mosek/
 spotless/
+
+# Computation results
+*.pkl
