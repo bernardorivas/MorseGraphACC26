@@ -96,13 +96,16 @@ def compute_morse_graph(box_map: nx.DiGraph, assign_colors: bool = True, cmap_na
 
 def compute_all_morse_set_basins(morse_graph: nx.DiGraph, box_map: nx.DiGraph) -> Dict[FrozenSet[int], Set[int]]:
     """
-    Compute the basin of attraction for each Morse set.
+    Compute the basin of attraction for each Morse set using reachability.
 
     Basin of a Morse set = all boxes in the BoxMap that eventually flow into any box in that Morse set.
     Uses efficient condensation-based algorithm for O(boxes + edges) complexity.
 
     When a transient box can reach multiple Morse sets, it is assigned to the basin of the
     "highest" Morse set in topological order (earliest in the DAG structure).
+
+    NOTE: This is a fast reachability-based algorithm. For the mathematically precise
+    containment-based definition, use compute_all_morse_set_basins_containment().
 
     :param morse_graph: The Morse graph containing all Morse sets as nodes
     :param box_map: The BoxMap (directed graph of box-to-box transitions)
@@ -167,7 +170,128 @@ def compute_all_morse_set_basins(morse_graph: nx.DiGraph, box_map: nx.DiGraph) -
     return basins
 
 
-def full_morse_graph_analysis(grid, F):
+def compute_all_morse_set_basins(morse_graph: nx.DiGraph, box_map: nx.DiGraph) -> Dict[FrozenSet[int], Set[int]]:
+    """
+    Compute disjoint basins of attraction for each Morse set using reachability.
+
+    For each box ξ, determine which Morse sets it can reach via forward iteration,
+    then assign it to the HIGHEST reachable Morse set in the partial order.
+
+    Basin(p) = {ξ : ξ can reach M(p) and p is maximal among reachable Morse sets}
+
+    Basins are DISJOINT: each box belongs to exactly one basin.
+
+    :param morse_graph: The Morse graph containing all Morse sets as nodes
+    :param box_map: The BoxMap (directed graph of box-to-box transitions)
+    :return: Dictionary mapping each Morse set to its basin (disjoint sets of box indices)
+    """
+    # Step 1: For each box, compute which Morse sets it can reach
+    all_boxes = set(box_map.nodes())
+    box_to_reachable_morse_sets = {}
+
+    # Get all Morse set boxes
+    morse_set_to_boxes = {morse_set: set(morse_set) for morse_set in morse_graph.nodes()}
+    box_to_morse_set = {}
+    for morse_set in morse_graph.nodes():
+        for box in morse_set:
+            box_to_morse_set[box] = morse_set
+
+    for start_box in all_boxes:
+        # Forward reachability: find all Morse sets reachable from start_box
+        reachable_morse_sets = set()
+        visited = {start_box}
+        queue = [start_box]
+
+        while queue:
+            current = queue.pop(0)
+            # Check if current is in a Morse set
+            if current in box_to_morse_set:
+                reachable_morse_sets.add(box_to_morse_set[current])
+
+            # Continue forward iteration
+            if current in box_map:
+                for successor in box_map.successors(current):
+                    if successor not in visited:
+                        visited.add(successor)
+                        queue.append(successor)
+
+        box_to_reachable_morse_sets[start_box] = reachable_morse_sets
+
+    # Step 2: Assign each box to the HIGHEST reachable Morse set
+    basins = {morse_set: set() for morse_set in morse_graph.nodes()}
+
+    for box, reachable in box_to_reachable_morse_sets.items():
+        if not reachable:
+            # Box doesn't reach any Morse set (maps outside or to boundary)
+            continue
+
+        # Find highest (maximal) Morse set among reachable ones
+        # A Morse set p is maximal if no other reachable Morse set q has p→q
+        maximal_morse_sets = set(reachable)
+        for p in reachable:
+            for q in reachable:
+                if p != q and nx.has_path(morse_graph, p, q):
+                    # p can reach q, so p is higher than q
+                    # Remove q from maximal candidates
+                    maximal_morse_sets.discard(q)
+
+        # Should have exactly one maximal element (Morse graph is a DAG/poset)
+        # Assign box to the maximal Morse set
+        if len(maximal_morse_sets) == 1:
+            highest = maximal_morse_sets.pop()
+            basins[highest].add(box)
+        elif len(maximal_morse_sets) > 1:
+            # Multiple maximal elements - shouldn't happen in a proper Morse graph
+            # Assign to first one found
+            highest = maximal_morse_sets.pop()
+            basins[highest].add(box)
+
+    return basins
+
+
+def compute_all_morse_set_roas(morse_graph: nx.DiGraph, box_map: nx.DiGraph) -> Dict[FrozenSet[int], Set[int]]:
+    """
+    Compute the region of attraction (RoA) for each Morse set.
+
+    TEMPORARY BANDAID: For each Morse set p, compute:
+        RoA(p) = Basin(p) ∪ Basin(q) for all q reachable from p in Morse graph
+
+    RoAs can OVERLAP: a box can belong to multiple RoAs.
+
+    :param morse_graph: The Morse graph containing all Morse sets as nodes
+    :param box_map: The BoxMap (directed graph of box-to-box transitions)
+    :return: Dictionary mapping each Morse set to its RoA (overlapping sets of box indices)
+    """
+    # Step 1: Compute disjoint basins using reachability
+    basins = compute_all_morse_set_basins(morse_graph, box_map)
+
+    # Step 2: For each Morse set p, compute RoA(p) = union of basins of p and all successors
+    roas = {}
+    for morse_set_p in morse_graph.nodes():
+        # Find all q reachable from p (including p itself)
+        reachable_from_p = {morse_set_p}
+        queue = [morse_set_p]
+        visited = {morse_set_p}
+
+        while queue:
+            current = queue.pop(0)
+            for successor in morse_graph.successors(current):
+                if successor not in visited:
+                    visited.add(successor)
+                    queue.append(successor)
+                    reachable_from_p.add(successor)
+
+        # RoA(p) = union of basins of all q reachable from p
+        roa = set()
+        for q in reachable_from_p:
+            roa.update(basins[q])
+
+        roas[morse_set_p] = roa
+
+    return roas
+
+
+def full_morse_graph_analysis(grid, F, compute_basins=True):
     """
     Compute box map, morse graph, and basins for a given dynamics F.
 
@@ -176,10 +300,14 @@ def full_morse_graph_analysis(grid, F):
 
     :param grid: UniformGrid object
     :param F: Dynamics object (F_integration, F_data, F_gaussianprocess, etc.)
+    :param compute_basins: If False, skip basin computation (useful when you only need
+                          basins for post-processed/combined Morse graph). Default True.
     :return: (box_map, morse_graph, basins)
         - box_map: NetworkX DiGraph of box-to-box transitions
         - morse_graph: NetworkX DiGraph of morse sets (SCCs)
         - basins: Dict mapping each morse set to its basin (set of box indices)
+                  Uses fast reachability algorithm for initial Morse graphs.
+                  If compute_basins=False, returns empty dict
 
     Example:
         >>> from MorseGraph.grids import UniformGrid
@@ -188,6 +316,9 @@ def full_morse_graph_analysis(grid, F):
         >>> grid = UniformGrid(bounds=np.array([[0,0], [6,6]]), divisions=np.array([128, 128]))
         >>> F = F_integration(ode_system, tau=0.5)
         >>> box_map, morse_graph, basins = full_morse_graph_analysis(grid, F)
+        
+        # Skip basin computation (faster for large Morse graphs)
+        >>> box_map, morse_graph, _ = full_morse_graph_analysis(grid, F, compute_basins=False)
     """
     from MorseGraph.core import Model
 
@@ -198,7 +329,10 @@ def full_morse_graph_analysis(grid, F):
     # Compute morse graph
     morse_graph = compute_morse_graph(box_map)
 
-    # Compute basins
-    basins = compute_all_morse_set_basins(morse_graph, box_map)
+    # Compute basins using fast reachability algorithm (good for many nodes)
+    if compute_basins:
+        basins = compute_all_morse_set_basins(morse_graph, box_map)
+    else:
+        basins = {}
 
     return box_map, morse_graph, basins

@@ -6,19 +6,15 @@ MORSE SET IoU vs F_integration (f)
 Node 0 (Attractor)                 0.143               0.444               0.108               1.000
 Node 1 (Attractor)                 0.250               0.444               0.066               1.000
 Node 2 (Repeller)                  0.030               1.000               0.026               0.663
---------------------------------------------------------------------------------
-Mean IoU                           0.141               0.630               0.067               0.888
 
 ================================================================================
-BASIN IoU vs F_integration (f) [including Morse sets]
+RoA IoU vs F_integration (f) [including Morse sets]
 ================================================================================
                     F_data              F_Lipschitz (f)     F_gaussianprocess (GP)F_integration (hat_f)
 --------------------------------------------------------------------------------
-Node 0 Basin                       0.010               1.000               0.385               0.980
-Node 1 Basin                       0.011               1.000               0.552               0.996
-Node 2 Basin                       0.016               1.000               0.034               0.530
---------------------------------------------------------------------------------
-Mean Basin IoU                     0.012               1.000               0.324               0.835
+Node 0 RoA                         0.010               1.000               0.385               0.980
+Node 1 RoA                         0.011               1.000               0.552               0.996
+Node 2 RoA                         0.000               1.000               0.982               1.000
 
 ================================================================================
 SPATIAL COVERAGE (Volume Ratios vs F_integration (f))
@@ -37,11 +33,11 @@ COMPUTATION TIME COMPARISON
 ================================================================================
 Method                                   Time (s)        Speedup vs F_int(f) 
 --------------------------------------------------------------------------------
-F_integration (f)                        88.34           1.00x               
-F_data                                   0.39            229.39x             
-F_Lipschitz (f)                          33.16           2.66x               
-F_gaussianprocess (GP)                   29.94           2.95x               
-F_integration (hat_f)                    46.41           1.90x               
+F_integration (f)                        93.34           1.00x               
+F_data                                   0.09            990.14x             
+F_Lipschitz (f)                          37.65           2.48x               
+F_gaussianprocess (GP)                   708.13          0.13x               
+F_integration (hat_f)                    50.30           1.86x               
 
 
 ================================================================================
@@ -51,6 +47,6 @@ Method                         IoU        Matched    Iso      Edit Dst
 --------------------------------------------------------------------------------
 F_data                         0.0107     2          No       0.667     
 F_Lipschitz (f)                1.0000     3          Yes      0.000     
-F_gaussianprocess (GP)         0.3236     3          Yes      0.000     
-F_integration (hat_f)          0.8354     3          Yes      0.000     
+F_gaussianprocess (GP)         0.6397     3          Yes      0.000     
+F_integration (hat_f)          0.9920     3          Yes      0.000     
 ================================================================================

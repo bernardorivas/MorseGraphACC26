@@ -24,7 +24,8 @@ from .analysis import (
 from .plot import (
     plot_morse_sets,
     plot_basins_of_attraction,
-    plot_morse_graph
+    plot_morse_graph,
+    plot_morse_graph_academic
 )
 from .metrics import (
     compute_all_metrics,
@@ -55,6 +56,7 @@ __all__ = [
     'plot_morse_sets',
     'plot_basins_of_attraction',
     'plot_morse_graph',
+    'plot_morse_graph_academic',
     # Metrics
     'compute_all_metrics',
     'compute_roa_accuracy',

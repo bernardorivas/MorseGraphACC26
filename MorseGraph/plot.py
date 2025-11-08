@@ -226,7 +226,8 @@ def _hierarchical_dag_layout(G):
 
 def plot_morse_graph(morse_graph: nx.DiGraph, ax: plt.Axes = None,
                     morse_sets_colors: dict = None, node_size: int = 300,
-                    arrowsize: int = 20, font_size: int = 8, show_box_counts: bool = False):
+                    arrowsize: int = 20, font_size: int = 8, show_box_counts: bool = False,
+                    show_title: bool = False):
     """
     Plots the Morse graph with hierarchical layout.
 
@@ -243,6 +244,7 @@ def plot_morse_graph(morse_graph: nx.DiGraph, ax: plt.Axes = None,
     :param arrowsize: Size of the arrow heads.
     :param font_size: Font size for node labels.
     :param show_box_counts: If True, display the number of boxes in each Morse set next to the node number.
+    :param show_title: If True, display the title on the axes. Default False for paper-ready figures.
     """
     if ax is None:
         _, ax = plt.subplots()
@@ -294,6 +296,18 @@ def plot_morse_graph(morse_graph: nx.DiGraph, ax: plt.Axes = None,
         pos_array = np.array(list(pos.values()))
         centroid = pos_array.mean(axis=0)
         pos = {node: (x - centroid[0], y - centroid[1]) for node, (x, y) in pos.items()}
+        
+        # Calculate symmetric axis limits to ensure centered display
+        pos_array_centered = np.array(list(pos.values()))
+        if len(pos_array_centered) > 0:
+            max_x = np.abs(pos_array_centered[:, 0]).max()
+            max_y = np.abs(pos_array_centered[:, 1]).max()
+            # Add some padding (10% margin)
+            padding = 0.1
+            xlim = (-max_x * (1 + padding), max_x * (1 + padding))
+            ylim = (-max_y * (1 + padding), max_y * (1 + padding))
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
 
     # Draw the graph components
     # Note: node_colors are RGBA tuples which matplotlib handles correctly
@@ -305,8 +319,145 @@ def plot_morse_graph(morse_graph: nx.DiGraph, ax: plt.Axes = None,
     nx.draw_networkx_labels(morse_graph, pos, labels=node_labels,
                            font_size=font_size, ax=ax)
 
-    ax.set_title("Morse Graph (DAG of Recurrent Components)")
+    if show_title:
+        ax.set_title("Morse Graph (DAG of Recurrent Components)")
     ax.axis('off')
+
+def plot_morse_graph_academic(morse_graph: nx.DiGraph, ax: plt.Axes = None,
+                             morse_sets_colors: dict = None, 
+                             node_size: int = 800,  # Larger nodes for visibility
+                             edge_width: float = 2.0,  # Thicker edges
+                             edge_alpha: float = 0.9,  # More opaque edges
+                             edge_color: str = 'black',  # Black instead of gray
+                             arrowsize: int = 30,  # Larger arrows
+                             font_size: int = 12,  # Larger font
+                             font_weight: str = 'bold',  # Bold text
+                             show_box_counts: bool = False,
+                             show_title: bool = False,
+                             node_edge_width: float = 1.5,  # Add border to nodes
+                             node_edge_color: str = 'black'):  # Black border for definition
+    """
+    Plots the Morse graph optimized for academic papers with small text widths.
+    
+    This version uses larger, more prominent visual elements suitable for
+    publication in academic papers where figures may be displayed at small sizes.
+    
+    :param morse_graph: The Morse graph to plot. Each node should have a 'color' attribute
+                       (assigned by compute_morse_graph).
+    :param ax: The matplotlib axes to plot on. If None, a new figure and axes are created.
+    :param morse_sets_colors: Deprecated parameter, ignored. Colors are taken from node attributes.
+    :param node_size: Size of the nodes (default 800 for better visibility).
+    :param edge_width: Width of edges (default 2.0 for better visibility).
+    :param edge_alpha: Alpha value for edges (default 0.9, nearly opaque).
+    :param edge_color: Color of edges (default 'black' for better contrast).
+    :param arrowsize: Size of the arrow heads (default 30).
+    :param font_size: Font size for node labels (default 12).
+    :param font_weight: Font weight ('bold' by default for better readability).
+    :param show_box_counts: If True, display the number of boxes in each Morse set.
+    :param show_title: If True, display the title on the axes. Default False for papers.
+    :param node_edge_width: Width of the border around nodes.
+    :param node_edge_color: Color of the border around nodes.
+    """
+    if ax is None:
+        _, ax = plt.subplots()
+
+    morse_sets = list(morse_graph.nodes())
+
+    # Use colors from node attributes or generate
+    node_colors = []
+    for morse_set in morse_sets:
+        color = None
+        if 'color' in morse_graph.nodes[morse_set]:
+            # Use color from node attribute
+            color = morse_graph.nodes[morse_set]['color']
+        else:
+            # Generate color for backward compatibility (high contrast)
+            num_sets = len(morse_sets)
+            # Use tab10 for better contrast in print
+            cmap = cm.get_cmap('tab10' if num_sets <= 10 else 'viridis')
+            color = cmap(morse_sets.index(morse_set) / max(num_sets - 1, 1))
+
+        # Convert numpy floats to python floats
+        if hasattr(color, '__iter__'):
+            color = tuple(float(c) for c in color)
+
+        node_colors.append(color)
+        # Update graph attribute
+        morse_graph.nodes[morse_set]['color'] = color
+
+    # Create node labels
+    if show_box_counts:
+        node_labels = {node: f"{i+1}\n({len(node)})"
+                      for i, node in enumerate(morse_sets)}
+    else:
+        node_labels = {node: str(i+1) for i, node in enumerate(morse_sets)}
+
+    # Try hierarchical layout
+    try:
+        from networkx.drawing.nx_agraph import pygraphviz_layout
+        pos = pygraphviz_layout(morse_graph, prog='dot')
+    except (ImportError, Exception):
+        # Fallback: use a topological sort-based hierarchical layout
+        try:
+            pos = _hierarchical_dag_layout(morse_graph)
+        except:
+            # Final fallback: spring layout
+            pos = nx.spring_layout(morse_graph, seed=42)
+
+    # Center the layout
+    if pos:
+        pos_array = np.array(list(pos.values()))
+        centroid = pos_array.mean(axis=0)
+        pos = {node: (x - centroid[0], y - centroid[1]) for node, (x, y) in pos.items()}
+        
+        # Calculate symmetric axis limits
+        pos_array_centered = np.array(list(pos.values()))
+        if len(pos_array_centered) > 0:
+            max_x = np.abs(pos_array_centered[:, 0]).max()
+            max_y = np.abs(pos_array_centered[:, 1]).max()
+            # Add some padding (15% margin for academic figures)
+            padding = 0.15
+            xlim = (-max_x * (1 + padding), max_x * (1 + padding))
+            ylim = (-max_y * (1 + padding), max_y * (1 + padding))
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
+
+    # Draw edges first (behind nodes)
+    nx.draw_networkx_edges(morse_graph, pos, 
+                          edge_color=edge_color,
+                          width=edge_width,
+                          arrows=True, 
+                          arrowsize=arrowsize, 
+                          ax=ax, 
+                          alpha=edge_alpha,
+                          connectionstyle="arc3,rad=0.1",
+                          arrowstyle='-|>',  # Better arrow style
+                          min_source_margin=15,  # Account for larger nodes
+                          min_target_margin=15)
+    
+    # Draw nodes with border for better definition
+    nx.draw_networkx_nodes(morse_graph, pos, 
+                          node_color=node_colors,
+                          node_size=node_size, 
+                          ax=ax, 
+                          alpha=1.0,  # Full opacity
+                          linewidths=node_edge_width,
+                          edgecolors=node_edge_color)
+    
+    # Draw labels with better visibility
+    nx.draw_networkx_labels(morse_graph, pos, 
+                           labels=node_labels,
+                           font_size=font_size, 
+                           font_weight=font_weight,
+                           font_color='white' if edge_color == 'black' else 'black',
+                           ax=ax)
+
+    if show_title:
+        ax.set_title("Morse Graph", fontsize=14, fontweight='bold')
+    ax.axis('off')
+    
+    # Make the plot tighter for academic papers
+    ax.set_aspect('equal')
 
 def visualize_morse_sets_graph_basins(grid, morse_graph, basins, box_map,
                                        method_label, bounds, labels, output_path,
@@ -316,6 +467,7 @@ def visualize_morse_sets_graph_basins(grid, morse_graph, basins, box_map,
 
     This is a pure visualization function that creates the standard 3-panel figure
     for Morse graph analysis. Separated from computation for modularity.
+    Now uses academic style for the Morse graph panel for better visibility.
 
     :param grid: UniformGrid object
     :param morse_graph: NetworkX DiGraph of morse sets
@@ -355,8 +507,8 @@ def visualize_morse_sets_graph_basins(grid, morse_graph, basins, box_map,
     axes[0].set_xlabel(xlabel)
     axes[0].set_ylabel(ylabel)
 
-    # Panel 2: Morse Graph
-    plot_morse_graph(morse_graph, ax=axes[1])
+    # Panel 2: Morse Graph - Use academic style for better visibility
+    plot_morse_graph_academic(morse_graph, ax=axes[1])
 
     # Panel 3: Basins of Attraction
     plot_basins_of_attraction(grid, basins, morse_graph=morse_graph, ax=axes[2],
@@ -412,6 +564,7 @@ def save_morse_sets_only(grid, morse_graph, box_map, output_path, bounds, show_o
 def save_morse_graph_only(morse_graph, output_path, show_box_counts=False):
     """
     Save only the Morse graph (DAG) panel as a standalone figure (paper-ready, no title).
+    Uses academic style for better visibility in papers.
 
     :param morse_graph: NetworkX DiGraph of morse sets
     :param output_path: Full path to save the figure
@@ -422,7 +575,8 @@ def save_morse_graph_only(morse_graph, output_path, show_box_counts=False):
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-    plot_morse_graph(morse_graph, ax=ax, show_box_counts=show_box_counts)
+    # Use academic style for paper-ready figures
+    plot_morse_graph_academic(morse_graph, ax=ax, show_box_counts=show_box_counts)
     # No title for paper-ready figure
 
     plt.tight_layout()

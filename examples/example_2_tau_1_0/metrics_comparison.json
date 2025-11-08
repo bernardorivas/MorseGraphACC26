@@ -1,10 +1,10 @@
 {
   "computation_times": {
-    "F_integration (f)": 40.521509885787964,
-    "F_data": 0.13692212104797363,
-    "F_Lipschitz (f)": 164.19880604743958,
-    "F_gaussianprocess (GP)": 5.833444118499756,
-    "F_integration (hat_f)": 38.96466302871704
+    "F_integration (f)": 47.263110876083374,
+    "F_data": 0.1736009120941162,
+    "F_Lipschitz (f)": 5492.021709918976,
+    "F_gaussianprocess (GP)": 11.807070016860962,
+    "F_integration (hat_f)": 46.53216314315796
   },
   "iou_metrics": {
     "morse_set_iou": {
@@ -24,12 +24,12 @@
         "mean": 0.5529063425276609
       },
       "F_integration (hat_f)": {
-        "node_0": 0.0,
-        "node_1": 0.1864406779661017,
-        "mean": 0.09322033898305085
+        "node_0": 0.9724238026124818,
+        "node_1": 1.0,
+        "mean": 0.9862119013062409
       }
     },
-    "basin_iou": {
+    "roa_iou": {
       "F_data": {
         "node_0": 0.022318031955363936,
         "node_1": 0.0,
@@ -42,13 +42,13 @@
       },
       "F_gaussianprocess (GP)": {
         "node_0": 0.973117278202024,
-        "node_1": 0.17391304347826086,
-        "mean": 0.5735151608401424
+        "node_1": 0.0006322711178553364,
+        "mean": 0.48687477465993967
       },
       "F_integration (hat_f)": {
-        "node_0": 0.001141262997717474,
-        "node_1": 0.13978494623655913,
-        "mean": 0.0704631046171383
+        "node_0": 0.9999365965001268,
+        "node_1": 0.9999367728882145,
+        "mean": 0.9999366846941706
       }
     },
     "coverage_ratios": {
@@ -65,8 +65,8 @@
         "node_1": 0.22727272727272727
       },
       "F_integration (hat_f)": {
-        "node_0": 0.010355029585798817,
-        "node_1": 0.5909090909090909
+        "node_0": 1.0103550295857988,
+        "node_1": 1.0
       }
     }
   },
@@ -89,7 +89,7 @@
     },
     {
       "method": "F_gaussianprocess (GP)",
-      "mean_iou": 0.5735151608401424,
+      "mean_iou": 0.48687477465993967,
       "num_matched": 2,
       "isomorphic": true,
       "edit_distance": 0.0,
@@ -97,7 +97,7 @@
     },
     {
       "method": "F_integration (hat_f)",
-      "mean_iou": 0.0704631046171383,
+      "mean_iou": 0.9999366846941706,
       "num_matched": 2,
       "isomorphic": true,
       "edit_distance": 0.0,

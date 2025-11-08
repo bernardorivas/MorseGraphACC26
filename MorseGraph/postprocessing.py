@@ -13,13 +13,16 @@ def post_processing_example_1(grid, box_map, morse_graph, basins, T1, T2):
     - Node 1: Attractors where x1 < T1, x2 > T2
     - Edges: 2->0 and 2->1 (only if connectivity exists)
 
+    RoAs are computed using the containment-based algorithm on the combined
+    structure (not just merged from original basins).
+
     :param grid: UniformGrid object
     :param box_map: NetworkX DiGraph of box-to-box transitions
     :param morse_graph: NetworkX DiGraph of morse sets
-    :param basins: Dict mapping morse sets to their basins
+    :param basins: Dict mapping morse sets to their basins (used for structure, not final RoAs)
     :param T1: x1 threshold parameter
     :param T2: x2 threshold parameter
-    :return: (collapsed_morse_graph, collapsed_basins)
+    :return: (collapsed_morse_graph, combined_roas)
     """
     # Early return: if only 1 morse set, nothing to combine
     if len(morse_graph.nodes()) <= 1:
@@ -127,49 +130,12 @@ def post_processing_example_1(grid, box_map, morse_graph, basins, T1, T2):
                 continue
             break
 
-    # Step 6: Recompute basins for combined morse sets
-    # For each box in box_map, determine which combined morse set it flows to
+    # Step 6: Compute RoAs using containment-based algorithm
+    # Import here to avoid circular dependency
+    from MorseGraph.analysis import compute_all_morse_set_roas
 
-    # Create mapping from original morse set to combined node index
-    morse_to_combined = {}
-    for ms in node_0_group:
-        morse_to_combined[ms] = 0  # Node 0
-    for ms in node_1_group:
-        morse_to_combined[ms] = 1  # Node 1
-    for ms in node_2_group:
-        morse_to_combined[ms] = 2  # Node 2 (repeller group)
-
-    # For each box, trace where it eventually flows in the combined graph
-    collapsed_basin_0 = set()
-    collapsed_basin_1 = set()
-    collapsed_basin_2 = set()
-
-    for box in box_map.nodes():
-        # Find which original morse set this box belongs to (from basins)
-        # The original basins already respect topological ordering (highest priority first)
-        original_morse_set = None
-        for ms, basin in basins.items():
-            if box in basin:
-                original_morse_set = ms
-                break  # Found the highest-priority morse set for this box
-
-        # Map to combined node and add to basin (first-reachable = stay there)
-        if original_morse_set is not None and original_morse_set in morse_to_combined:
-            target_combined = morse_to_combined[original_morse_set]
-
-            if target_combined == 0:
-                collapsed_basin_0.add(box)
-            elif target_combined == 1:
-                collapsed_basin_1.add(box)
-            elif target_combined == 2:
-                collapsed_basin_2.add(box)
-
-    # Step 7: Store basins mapped to frozenset keys
-    combined_basins = {
-        combined_morse_set_0: collapsed_basin_0,
-        combined_morse_set_1: collapsed_basin_1,
-        combined_morse_set_2: collapsed_basin_2
-    }
+    print("  Computing RoAs with containment algorithm...")
+    combined_roas = compute_all_morse_set_roas(combined_morse_graph, box_map)
 
     # Add color attributes for visualization (Wong colorblind-safe palette)
     colors = [
@@ -180,7 +146,7 @@ def post_processing_example_1(grid, box_map, morse_graph, basins, T1, T2):
     for morse_set, color in zip([combined_morse_set_0, combined_morse_set_1, combined_morse_set_2], colors):
         combined_morse_graph.nodes[morse_set]['color'] = color
 
-    return combined_morse_graph, combined_basins
+    return combined_morse_graph, combined_roas
 
 
 def post_processing_example_2(grid, box_map, morse_graph, basins):
@@ -191,11 +157,14 @@ def post_processing_example_2(grid, box_map, morse_graph, basins):
     - Node 0: Stable limit cycle (main attractor/bottom)
     - Node 1: Unstable region near origin (repressor/top)
 
+    RoAs are computed using the containment-based algorithm on the combined
+    structure (not just merged from original basins).
+
     :param grid: UniformGrid object
     :param box_map: NetworkX DiGraph of box-to-box transitions
     :param morse_graph: NetworkX DiGraph of morse sets
-    :param basins: Dict mapping morse sets to their basins
-    :return: (combined_morse_graph, combined_basins)
+    :param basins: Dict mapping morse sets to their basins (used for structure, not final RoAs)
+    :return: (combined_morse_graph, combined_roas)
     """
     # Early return: if ≤2 morse sets, nothing to combine
     if len(morse_graph.nodes()) <= 2:
@@ -285,43 +254,12 @@ def post_processing_example_2(grid, box_map, morse_graph, basins):
                 continue
             break
 
-    # Step 6: Recompute basins for combined morse sets
-    # For each box in box_map, determine which combined morse set it flows to
+    # Step 6: Compute RoAs using containment-based algorithm
+    # Import here to avoid circular dependency
+    from MorseGraph.analysis import compute_all_morse_set_roas
 
-    # Create mapping from original morse set to combined node index
-    morse_to_combined = {}
-    for ms in node_0_group:
-        morse_to_combined[ms] = 0  # Node 0 (stable limit cycle)
-    for ms in node_1_group:
-        morse_to_combined[ms] = 1  # Node 1 (unstable origin)
-
-    # For each box, trace where it eventually flows in the combined graph
-    combined_basin_0 = set()
-    combined_basin_1 = set()
-
-    for box in box_map.nodes():
-        # Find which original morse set this box belongs to (from basins)
-        # The original basins already respect topological ordering (highest priority first)
-        original_morse_set = None
-        for ms, basin in basins.items():
-            if box in basin:
-                original_morse_set = ms
-                break  # Found the highest-priority morse set for this box
-
-        # Map to combined node and add to basin (first-reachable = stay there)
-        if original_morse_set is not None and original_morse_set in morse_to_combined:
-            target_combined = morse_to_combined[original_morse_set]
-
-            if target_combined == 0:
-                combined_basin_0.add(box)
-            elif target_combined == 1:
-                combined_basin_1.add(box)
-
-    # Step 7: Store basins mapped to frozenset keys
-    combined_basins = {
-        combined_morse_set_0: combined_basin_0,
-        combined_morse_set_1: combined_basin_1
-    }
+    print("  Computing RoAs with containment algorithm...")
+    combined_roas = compute_all_morse_set_roas(combined_morse_graph, box_map)
 
     # Add color attributes for visualization (Wong colorblind-safe palette)
     colors = [
@@ -331,4 +269,4 @@ def post_processing_example_2(grid, box_map, morse_graph, basins):
     for morse_set, color in zip([combined_morse_set_0, combined_morse_set_1], colors):
         combined_morse_graph.nodes[morse_set]['color'] = color
 
-    return combined_morse_graph, combined_basins
+    return combined_morse_graph, combined_roas

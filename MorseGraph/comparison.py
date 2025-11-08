@@ -83,25 +83,25 @@ def compute_morse_set_iou_table(combined_morse_graphs: List,
     return iou_table
 
 
-def compute_basin_iou_table(combined_basins_list: List[Dict],
+def compute_roa_iou_table(combined_roas_list: List[Dict],
                               combined_morse_graphs: List,
                               method_names: List[str],
                               ground_truth_idx: int = 0) -> Dict[str, Dict[str, float]]:
     """
-    Compute IoU table for basins (including Morse sets) comparing methods against ground truth.
+    Compute IoU table for RoAs (regions of attraction) comparing methods against ground truth.
 
     Supports flexible node counts (2 nodes, 3 nodes, etc.)
     If a method has fewer nodes than ground truth, missing nodes are treated as empty (IoU = 0)
 
-    :param combined_basins_list: List of basin dicts (one per method)
+    :param combined_roas_list: List of RoA dicts (one per method)
     :param combined_morse_graphs: List of collapsed Morse graphs (for node ordering)
     :param method_names: List of method names
     :param ground_truth_idx: Index of ground truth method (default: 0)
     :return: Dict with structure {method_name: {node_0: iou, node_1: iou, ..., mean: iou}}
 
-    Note: Basins include the Morse set boxes themselves (see MorseGraph/analysis.py line 129)
+    Note: RoAs include the Morse set boxes themselves (computed with containment algorithm)
     """
-    gt_basins = combined_basins_list[ground_truth_idx]
+    gt_roas = combined_roas_list[ground_truth_idx]
     gt_graph = combined_morse_graphs[ground_truth_idx]
     gt_nodes = list(gt_graph.nodes())
     num_nodes = len(gt_nodes)
@@ -113,7 +113,7 @@ def compute_basin_iou_table(combined_basins_list: List[Dict],
             # Skip ground truth
             continue
 
-        method_basins = combined_basins_list[i]
+        method_roas = combined_roas_list[i]
         method_graph = combined_morse_graphs[i]
         method_nodes = list(method_graph.nodes())
         num_method_nodes = len(method_nodes)
@@ -134,19 +134,19 @@ def compute_basin_iou_table(combined_basins_list: List[Dict],
                 gt_morse_set = gt_nodes[node_idx]
                 method_morse_set = method_nodes[node_idx]
 
-                gt_basin_boxes = set(gt_basins[gt_morse_set])
-                method_basin_boxes = set(method_basins[method_morse_set])
+                gt_roa_boxes = set(gt_roas[gt_morse_set])
+                method_roa_boxes = set(method_roas[method_morse_set])
 
                 # Compute IoU
-                intersection = gt_basin_boxes & method_basin_boxes
-                union = gt_basin_boxes | method_basin_boxes
+                intersection = gt_roa_boxes & method_roa_boxes
+                union = gt_roa_boxes | method_roa_boxes
 
                 if len(union) == 0:
                     iou = 0.0
                 else:
                     iou = len(intersection) / len(union)
             else:
-                # Node missing in method (treat as empty basin)
+                # Node missing in method (treat as empty RoA)
                 # IoU = 0 since intersection is empty
                 iou = 0.0
 
@@ -223,7 +223,7 @@ def compute_coverage_ratios(combined_morse_graphs: List,
 
 
 def format_iou_tables_text(morse_set_iou: Dict,
-                             basin_iou: Dict,
+                             roa_iou: Dict,
                              coverage_ratios: Dict,
                              ground_truth_name: str = 'F_integration(f)',
                              node_labels: list = None) -> str:
@@ -231,7 +231,7 @@ def format_iou_tables_text(morse_set_iou: Dict,
     Format IoU tables as pretty text output.
 
     :param morse_set_iou: Morse set IoU table from compute_morse_set_iou_table
-    :param basin_iou: Basin IoU table from compute_basin_iou_table
+    :param roa_iou: RoA IoU table from compute_roa_iou_table
     :param coverage_ratios: Coverage ratios from compute_coverage_ratios
     :param ground_truth_name: Name of ground truth method
     :param node_labels: List of node labels (e.g., ['Node 0 (Attractor)', ...])
@@ -279,18 +279,10 @@ def format_iou_tables_text(morse_set_iou: Dict,
             row += f"{iou:20.3f}"
         lines.append(row)
 
-    # Mean row
-    lines.append("-" * 80)
-    row = f"{'Mean IoU':20}"
-    for method in method_names:
-        mean_iou = morse_set_iou[method]['mean']
-        row += f"{mean_iou:20.3f}"
-    lines.append(row)
-
-    # Basin IoU table
+    # RoA IoU table
     lines.append("")
     lines.append("=" * 80)
-    lines.append(f"BASIN IoU vs {ground_truth_name} [including Morse sets]")
+    lines.append(f"RoA IoU vs {ground_truth_name} [including Morse sets]")
     lines.append("=" * 80)
 
     # Column headers
@@ -300,23 +292,15 @@ def format_iou_tables_text(morse_set_iou: Dict,
     lines.append(header)
     lines.append("-" * 80)
 
-    # Node rows - use Basin suffix
-    basin_labels = [f'{label.split(" (")[0]} Basin' for label in node_labels]
+    # Node rows - use RoA suffix
+    roa_labels = [f'{label.split(" (")[0]} RoA' for label in node_labels]
     for node_idx in range(num_nodes):
-        label = basin_labels[node_idx] if node_idx < len(basin_labels) else f'Node {node_idx} Basin'
+        label = roa_labels[node_idx] if node_idx < len(roa_labels) else f'Node {node_idx} RoA'
         row = f"{label:20}"
         for method in method_names:
-            iou = basin_iou[method][f'node_{node_idx}']
+            iou = roa_iou[method][f'node_{node_idx}']
             row += f"{iou:20.3f}"
         lines.append(row)
-
-    # Mean row
-    lines.append("-" * 80)
-    row = f"{'Mean Basin IoU':20}"
-    for method in method_names:
-        mean_iou = basin_iou[method]['mean']
-        row += f"{mean_iou:20.3f}"
-    lines.append(row)
 
     # Coverage ratios table
     lines.append("")
